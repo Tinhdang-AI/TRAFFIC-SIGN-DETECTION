@@ -1,5 +1,9 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:traffic_sign/features/detection/controllers/detection_controller.dart';
+import 'package:traffic_sign/features/detection/services/yolov8_service.dart';
+import 'package:traffic_sign/features/detection/widgets/detection_overlay.dart';
 import '../apps/theme/app_theme.dart';
 
 class HomePage extends StatefulWidget {
@@ -14,7 +18,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController _scanController;
   late Animation<double> _pulseAnimation;
   late Animation<double> _scanAnimation;
-  bool _isDetecting = false;
+  late DetectionController _detectionController;
 
   @override
   void initState() {
@@ -35,10 +39,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _scanAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _scanController, curve: Curves.linear),
     );
+
+    _detectionController = DetectionController(
+      yoloService: YoloV8Service(
+        modelAssetPath: 'assets/models/yolov8n_traffic_sign.tflite',
+        labelsAssetPath: 'assets/models/labels.txt',
+      ),
+    );
+    _initializeDetection();
+  }
+
+  Future<void> _initializeDetection() async {
+    await _detectionController.initialize();
   }
 
   @override
   void dispose() {
+    _detectionController.dispose();
     _pulseController.dispose();
     _scanController.dispose();
     super.dispose();
@@ -46,24 +63,29 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: CustomScrollView(
-        slivers: [
-          _buildAppBar(),
-          SliverToBoxAdapter(
-            child: Column(
-              children: [
-                _buildCameraSection(),
-                _buildDetectionCard(),
-                _buildQuickLookup(),
-                _buildRecentHistory(),
-                const SizedBox(height: 24),
-              ],
-            ),
+    return AnimatedBuilder(
+      animation: _detectionController,
+      builder: (context, child) {
+        return Scaffold(
+          backgroundColor: AppColors.background,
+          body: CustomScrollView(
+            slivers: [
+              _buildAppBar(),
+              SliverToBoxAdapter(
+                child: Column(
+                  children: [
+                    _buildCameraSection(),
+                    _buildDetectionCard(),
+                    _buildQuickLookup(),
+                    _buildRecentHistory(),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -128,6 +150,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildCameraSection() {
+    final cameraController = _detectionController.cameraController;
+    final isReady = _detectionController.isReady && cameraController != null;
+    final isDetecting = _detectionController.isDetecting;
+
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       height: 220,
@@ -147,94 +173,77 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Camera placeholder background
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    const Color(0xFF0D1410),
-                    const Color(0xFF1A2B20),
-                  ],
+            if (isReady)
+              Center(
+                child: AspectRatio(
+                  aspectRatio: cameraController.value.aspectRatio,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CameraPreview(cameraController),
+                      DetectionOverlay(predictions: _detectionController.predictions),
+                      CustomPaint(painter: GridPainter()),
+                      Center(child: _buildDetectionFrame()),
+                    ],
+                  ),
                 ),
-              ),
-            ),
+              )
+            else
+              _buildCameraLoadingState(),
 
-            // Viewfinder grid
-            CustomPaint(
-              painter: GridPainter(),
-            ),
-
-            // Detection box
-            Center(
-              child: _buildDetectionFrame(),
-            ),
-
-            // Scan line animation
-            AnimatedBuilder(
-              animation: _scanAnimation,
-              builder: (context, child) {
-                return Positioned(
-                  top: _scanAnimation.value * 180,
-                  left: 20,
-                  right: 20,
-                  child: Container(
-                    height: 1.5,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.transparent,
-                          AppColors.cameraFrame.withOpacity(0.8),
-                          Colors.transparent,
-                        ],
+            if (isDetecting)
+              AnimatedBuilder(
+                animation: _scanAnimation,
+                builder: (context, child) {
+                  return Positioned(
+                    top: _scanAnimation.value * 180,
+                    left: 20,
+                    right: 20,
+                    child: Container(
+                      height: 1.5,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.transparent,
+                            AppColors.cameraFrame.withOpacity(0.8),
+                            Colors.transparent,
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
-            ),
+                  );
+                },
+              ),
 
-            // Detected sign badge
             Positioned(
               top: 16,
               right: 16,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primary.withOpacity(0.4),
-                      blurRadius: 8,
+              child: _buildDetectionBadge(),
+            ),
+
+            if (_detectionController.errorMessage != null)
+              Positioned(
+                top: 16,
+                left: 16,
+                right: 120,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    _detectionController.errorMessage!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
                     ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Speed Limit 60',
-                      style: GoogleFonts.inter(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
 
             // Bottom controls
             Positioned(
@@ -257,11 +266,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   children: [
                     Expanded(
                       child: ScaleTransition(
-                        scale: _isDetecting ? _pulseAnimation : const AlwaysStoppedAnimation(1.0),
+                        scale: isDetecting ? _pulseAnimation : const AlwaysStoppedAnimation(1.0),
                         child: ElevatedButton.icon(
-                          onPressed: () => setState(() => _isDetecting = !_isDetecting),
+                          onPressed: () async {
+                            await _detectionController.toggleDetection();
+                          },
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: _isDetecting
+                            backgroundColor: isDetecting
                                 ? AppColors.danger
                                 : AppColors.primary,
                             foregroundColor: Colors.white,
@@ -272,11 +283,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             elevation: 0,
                           ),
                           icon: Icon(
-                            _isDetecting ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                            isDetecting ? Icons.stop_rounded : Icons.play_arrow_rounded,
                             size: 20,
                           ),
                           label: Text(
-                            _isDetecting ? 'Dừng nhận diện' : 'Bắt đầu nhận diện',
+                            isDetecting ? 'Dừng nhận diện' : 'Bắt đầu nhận diện',
                             style: GoogleFonts.inter(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -325,7 +336,116 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  Widget _buildCameraLoadingState() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFF0D1410),
+            Color(0xFF1A2B20),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 26,
+              height: 26,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.4,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Đang khởi tạo camera & model...',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: Colors.white.withOpacity(0.85),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetectionBadge() {
+    final prediction = _detectionController.topPrediction;
+    final isDetecting = _detectionController.isDetecting;
+    final hasPrediction = prediction != null;
+
+    final badgeText = hasPrediction
+        ? '${_formatLabel(prediction.label)} ${(prediction.score * 100).toStringAsFixed(0)}%'
+        : (isDetecting ? 'Đang quét...' : 'Sẵn sàng nhận diện');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: hasPrediction ? AppColors.primary : Colors.black.withOpacity(0.45),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: hasPrediction
+            ? [
+                BoxShadow(
+                  color: AppColors.primary.withOpacity(0.4),
+                  blurRadius: 8,
+                ),
+              ]
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: isDetecting ? Colors.white : Colors.white70,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            badgeText,
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatLabel(String label) {
+    return label
+        .replaceAll('_', ' ')
+        .split(' ')
+        .where((segment) => segment.isNotEmpty)
+        .map((segment) {
+          if (segment.length == 1) {
+            return segment.toUpperCase();
+          }
+          return segment[0].toUpperCase() + segment.substring(1);
+        })
+        .join(' ');
+  }
+
   Widget _buildDetectionCard() {
+    final prediction = _detectionController.topPrediction;
+    final isDetecting = _detectionController.isDetecting;
+
+    final signLabel = prediction != null ? _formatLabel(prediction.label) : 'Chưa có biển báo nào';
+    final signSubLabel = prediction != null
+        ? 'Độ tin cậy ${(prediction.score * 100).toStringAsFixed(1)}%'
+        : (isDetecting ? 'Đang phân tích khung hình...' : 'Nhấn Bắt đầu nhận diện để chạy YOLOv8');
+
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       padding: const EdgeInsets.all(16),
@@ -359,13 +479,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      Icons.access_time_rounded,
+                      Icons.bolt_rounded,
                       size: 11,
                       color: AppColors.primary,
                     ),
                     const SizedBox(width: 3),
                     Text(
-                      'Vừa xong',
+                      '${_detectionController.lastInferenceMs}ms',
                       style: GoogleFonts.inter(
                         fontSize: 11,
                         color: AppColors.primary,
@@ -385,18 +505,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(
-                  color: AppColors.dangerLight,
+                  color: prediction != null ? AppColors.primarySurface : AppColors.surfaceVariant,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.danger.withOpacity(0.2)),
+                  border: Border.all(
+                    color: prediction != null
+                        ? AppColors.primary.withOpacity(0.25)
+                        : AppColors.border,
+                  ),
                 ),
                 child: Center(
-                  child: Text(
-                    '60',
-                    style: GoogleFonts.inter(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.danger,
-                    ),
+                  child: Icon(
+                    prediction != null ? Icons.traffic_rounded : Icons.remove_red_eye_outlined,
+                    size: 30,
+                    color: prediction != null ? AppColors.primary : AppColors.textTertiary,
                   ),
                 ),
               ),
@@ -406,9 +527,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Giới hạn tốc độ 60km/h',
+                      signLabel,
                       style: GoogleFonts.inter(
-                        fontSize: 18,
+                        fontSize: 17,
                         fontWeight: FontWeight.w700,
                         color: AppColors.textPrimary,
                         height: 1.2,
@@ -416,7 +537,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Cách đây 2 phút',
+                      signSubLabel,
                       style: GoogleFonts.inter(
                         fontSize: 13,
                         color: AppColors.textTertiary,
@@ -443,7 +564,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    'Xem chi tiết',
+                    prediction != null ? 'Xem chi tiết' : 'Chưa có dữ liệu',
                     style: GoogleFonts.inter(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,

@@ -1,0 +1,6 @@
+Biển báo tốc độ 60km/h
+Cấm quay đầu
+Cấm rẽ phải
+Cấm rẽ trái
+Cấm đi ngược chiều
+Stop
