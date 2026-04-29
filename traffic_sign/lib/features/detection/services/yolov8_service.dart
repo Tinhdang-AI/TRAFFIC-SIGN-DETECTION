@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:camera/camera.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
@@ -10,8 +12,8 @@ class YoloV8Service {
   YoloV8Service({
     required this.modelAssetPath,
     required this.labelsAssetPath,
-    this.confidenceThreshold = 0.35,
-    this.iouThreshold = 0.45,
+    this.confidenceThreshold = 0.12,
+    this.iouThreshold = 0.35,
     this.maxDetections = 20,
     this.numThreads = 4,
   });
@@ -71,11 +73,13 @@ class YoloV8Service {
 
     interpreter.run(input, output);
 
-    final predictions = _decodeYoloPredictions(output, outputShape)
-        .where((p) => p.score >= confidenceThreshold)
-        .toList();
+    final rawPredictions = _decodeYoloPredictions(output, outputShape);
+    final predictions = rawPredictions.where((p) => p.score >= confidenceThreshold).toList();
+    final effectivePredictions = predictions.isNotEmpty
+      ? predictions
+      : (rawPredictions.isNotEmpty ? [rawPredictions.first] : const <DetectionPrediction>[]);
 
-    final suppressed = _applyNms(predictions, iouThreshold)
+    final suppressed = _applyNms(effectivePredictions, iouThreshold)
         .take(maxDetections)
         .toList(growable: false);
 
@@ -119,20 +123,68 @@ class YoloV8Service {
     final rows = shape[1];
     final cols = shape[2];
     final List<DetectionPrediction> predictions = [];
+    final hasObjectness = rows == _labels.length + 5 || cols == _labels.length + 5;
+    // Debug: print raw output shape
+    try {
+      // ignore: avoid_print
+      print('YOLO raw output shape: $shape');
+    } catch (_) {}
+
+    // Handle common compact export format [1, N, 6] where each row is
+    // [cx, cy, w, h, score, classIndex]. Many TFLite YOLO exports use this.
+    if (cols == 6) {
+      try {
+        // print first few rows for debugging
+        for (var j = 0; j < math.min(rows, 3); j++) {
+          final a0 = _asDouble(output[0][j][0]);
+          final a1 = _asDouble(output[0][j][1]);
+          final a2 = _asDouble(output[0][j][2]);
+          final a3 = _asDouble(output[0][j][3]);
+          final a4 = _asDouble(output[0][j][4]);
+          final a5 = _asDouble(output[0][j][5]);
+          // ignore: avoid_print
+          print('YOLO row $j -> cx:$a0 cy:$a1 w:$a2 h:$a3 score:$a4 cls:$a5');
+        }
+      } catch (_) {}
+      for (var i = 0; i < rows; i++) {
+        final cx = _asDouble(output[0][i][0]);
+        final cy = _asDouble(output[0][i][1]);
+        final w = _asDouble(output[0][i][2]);
+        final h = _asDouble(output[0][i][3]);
+        final score = _normalizeScore(_asDouble(output[0][i][4]));
+        final clsVal = _asDouble(output[0][i][5]);
+        final classIndex = clsVal.isFinite ? clsVal.round() : -1;
+        if (score >= confidenceThreshold && classIndex >= 0) {
+          final rect = _toNormalizedRect(cx, cy, w, h);
+          final label = _labelForClass(classIndex);
+          // ignore: avoid_print
+          print('Decoded detection -> class:$classIndex label:$label score:$score');
+          predictions.add(DetectionPrediction(
+            label: label,
+            classIndex: classIndex,
+            score: score,
+            boundingBox: rect,
+          ));
+        }
+      }
+      return predictions;
+    }
 
     // YOLOv8 TFLite commonly exports [1, 84, 8400] or [1, 8400, 84].
     if (rows <= 128 && cols > rows) {
-      final numClasses = rows - 4;
+      final numClasses = hasObjectness ? rows - 5 : rows - 4;
       for (var i = 0; i < cols; i++) {
         final cx = _asDouble(output[0][0][i]);
         final cy = _asDouble(output[0][1][i]);
         final w = _asDouble(output[0][2][i]);
         final h = _asDouble(output[0][3][i]);
+        final objectness = hasObjectness ? _normalizeScore(_asDouble(output[0][4][i])) : 1.0;
 
         var bestClass = -1;
         var bestScore = 0.0;
         for (var c = 0; c < numClasses; c++) {
-          final score = _asDouble(output[0][c + 4][i]);
+          final scoreIndex = hasObjectness ? c + 5 : c + 4;
+          final score = _normalizeScore(_asDouble(output[0][scoreIndex][i]));
           if (score > bestScore) {
             bestScore = score;
             bestClass = c;
@@ -145,7 +197,7 @@ class YoloV8Service {
             DetectionPrediction(
               label: _labelForClass(bestClass),
               classIndex: bestClass,
-              score: bestScore,
+              score: (bestScore * objectness).clamp(0.0, 1.0),
               boundingBox: rect,
             ),
           );
@@ -154,17 +206,19 @@ class YoloV8Service {
       return predictions;
     }
 
-    final numClasses = cols - 4;
+    final numClasses = hasObjectness ? cols - 5 : cols - 4;
     for (var i = 0; i < rows; i++) {
       final cx = _asDouble(output[0][i][0]);
       final cy = _asDouble(output[0][i][1]);
       final w = _asDouble(output[0][i][2]);
       final h = _asDouble(output[0][i][3]);
+      final objectness = hasObjectness ? _normalizeScore(_asDouble(output[0][i][4])) : 1.0;
 
       var bestClass = -1;
       var bestScore = 0.0;
       for (var c = 0; c < numClasses; c++) {
-        final score = _asDouble(output[0][i][c + 4]);
+        final scoreIndex = hasObjectness ? c + 5 : c + 4;
+        final score = _normalizeScore(_asDouble(output[0][i][scoreIndex]));
         if (score > bestScore) {
           bestScore = score;
           bestClass = c;
@@ -177,7 +231,7 @@ class YoloV8Service {
           DetectionPrediction(
             label: _labelForClass(bestClass),
             classIndex: bestClass,
-            score: bestScore,
+            score: (bestScore * objectness).clamp(0.0, 1.0),
             boundingBox: rect,
           ),
         );
@@ -367,5 +421,17 @@ class YoloV8Service {
       return value.first.toDouble();
     }
     throw StateError('Unsupported tensor value type: ${value.runtimeType}');
+  }
+
+  double _normalizeScore(double value) {
+    if (!value.isFinite) {
+      return 0.0;
+    }
+
+    if (value >= 0.0 && value <= 1.0) {
+      return value;
+    }
+
+    return 1.0 / (1.0 + math.exp(-value));
   }
 }

@@ -42,8 +42,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     _detectionController = DetectionController(
       yoloService: YoloV8Service(
-        modelAssetPath: 'assets/models/yolov8n_traffic_sign.tflite',
-        labelsAssetPath: 'assets/models/labels.txt',
+        modelAssetPath: 'assets/models/best59_float16.tflite',
+        labelsAssetPath: 'assets/models/labels_59.txt',
       ),
     );
     _initializeDetection();
