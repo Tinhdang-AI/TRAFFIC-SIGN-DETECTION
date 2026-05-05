@@ -1,59 +1,56 @@
-batdau_duong_uutien
-cam_dithang
-cam_do
-cam_duongcam
-cam_nguocchieu
-cam_oto
-cam_quaydauxe
-cam_re
-cam_sudungcoixe
-cam_vuot
-camdung_do
-camre_phai
-camre_qdau_phai
-camre_qdau_trai
-camre_trai
-chiduoc_dithang
-chiduocre_phai
-chiduocre_trai
-chuy_cho_ngoat_nguyhiem
-chuy_congtrinh
-chuy_ddtx_tainan
-chuy_dicham
-chuy_duong2chieu
-chuy_duong_giaonhau
-chuy_duong_kbphang
-chuy_duong_tron
-chuy_duongdoi
-chuy_duonghep
-chuy_giaoduong_khutien
-chuy_giaoduong_uutien
-chuy_hamchui
-chuy_het_duongdoi
-chuy_ngdibo
-chuy_tinhieuden
-chuy_treem
-hanchechieucao_4.3
-het_lenhcam
-huongphaidi_tranhvatcan
-ketthuc_duong_uutien
-khuvucdongdancu
-maxlimit100
-maxlimit120
-maxlimit20
-maxlimit30
-maxlimit40
-maxlimit50
-maxlimit60
-maxlimit70
-maxlimit80
-maxlimit90
-minlimit50
-minlimit60
-minlimit80
-ngoai_khuvucdongdc
-out_maxlimit40
-out_maxlimit50
-out_maxlimit60
-stop
-vongxuyen
+DP-135_Biển phụ chỉ phạm vi tác dụng
+P-102_Cấm đi ngược chiều
+P-103a_Cấm ô tô
+P-103b_Cấm ô tô rẽ phải
+P-103c_Cấm ô tô rẽ trái
+P-104_Cấm mô tô, xe máy
+P-106a_Cấm xe tải
+P-106b_Cấm xe tải vượt quá trọng lượng quy định
+P-107a_Cấm xe khách
+P-112_Cấm người đi bộ
+P-115_Hạn chế trọng lượng toàn bộ xe
+P-117_Hạn chế chiều cao
+P-123a_Cấm rẽ trái
+P-123b_Cấm rẽ phải
+P-124a_Cấm quay đầu xe
+P-124b_Cấm ô tô quay đầu xe
+P-124c_Cấm rẽ trái và quay đầu xe
+P-127_Tốc độ tối đa cho phép
+P-128_Cấm sử dụng còi
+P-130_Cấm dừng xe và đỗ xe
+P-131a_Cấm đỗ xe
+P-137_Cấm rẽ trái theo giờ
+P-245a_Đi chậm
+R-301c_Hướng đi phải theo (rẽ phải)
+R-301d_Hướng đi phải theo (rẽ trái)
+R-301e_Hướng đi phải theo (đi thẳng)
+R-302a_Phải đi vòng chướng ngại vật bên phải
+R-302b_Phải đi vòng chướng ngại vật bên trái
+R-303_Nơi giao nhau chạy theo vòng xuyến
+R-407a_Đường một chiều
+R-409_Chỗ quay xe
+R-425_Đường dành cho người đi bộ
+R-434_Bến xe buýt
+S-509a_Chỉ hướng đường
+W-201a_Chỗ ngoặt nguy hiểm bên trái
+W-201b_Chỗ ngoặt nguy hiểm bên phải
+W-202a_Nhiều chỗ ngoặt liên tiếp (đầu tiên bên trái)
+W-202b_Nhiều chỗ ngoặt liên tiếp (đầu tiên bên phải)
+W-203b_Đường bị hẹp bên phải
+W-203c_Đường bị hẹp hai bên
+W-205a_Giao nhau cùng mức (ngã tư)
+W-205b_Giao nhau với đường không ưu tiên
+W-205d_Giao nhau hình chữ T
+W-207a_Giao nhau với đường ưu tiên
+W-207b_Đường nhánh nhập vào bên phải
+W-207c_Đường nhánh nhập vào bên trái
+W-208_Giao nhau có tín hiệu đèn
+W-209_Giao nhau với đường sắt có rào chắn
+W-210_Giao nhau với đường sắt không có rào chắn
+W-219_Dốc xuống nguy hiểm
+W-224_Đường người đi bộ cắt ngang
+W-225_Trẻ em
+W-227_Công trường
+W-233_Nguy hiểm khác
+W-235_Đường trơn
+W-245a_Đi chậm (cảnh báo)

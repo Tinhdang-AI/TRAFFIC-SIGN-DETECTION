@@ -3,13 +3,20 @@ import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/detection_history_item.dart';
 import '../models/detection_prediction.dart';
+import '../services/detection_history_service.dart';
 import '../services/yolov8_service.dart';
 
 class DetectionController extends ChangeNotifier {
-  DetectionController({required YoloV8Service yoloService}) : _yoloService = yoloService;
+  DetectionController({
+    required YoloV8Service yoloService,
+    required DetectionHistoryService historyService,
+  }) : _yoloService = yoloService,
+       _historyService = historyService;
 
   final YoloV8Service _yoloService;
+  final DetectionHistoryService _historyService;
 
   CameraController? _cameraController;
   CameraController? get cameraController => _cameraController;
@@ -30,11 +37,16 @@ class DetectionController extends ChangeNotifier {
 
   DateTime? _lastFrameAt;
   DateTime? _lastUiUpdateAt;
+  DateTime? _lastHistorySavedAt;
+  String? _lastHistorySignature;
   final Duration _minFrameInterval = const Duration(milliseconds: 260);
   final Duration _minUiUpdateInterval = const Duration(milliseconds: 220);
+  final Duration _minHistorySaveInterval = const Duration(seconds: 5);
 
   List<DetectionPrediction> _predictions = const [];
   List<DetectionPrediction> get predictions => _predictions;
+
+  List<DetectionHistoryItem> get historyItems => _historyService.items;
 
   DetectionPrediction? get topPrediction =>
       _predictions.isEmpty ? null : _predictions.first;
@@ -68,6 +80,7 @@ class DetectionController extends ChangeNotifier {
       _cameraController = controller;
       _isReady = true;
       _errorMessage = null;
+      await _historyService.initialize();
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
@@ -132,7 +145,8 @@ class DetectionController extends ChangeNotifier {
     }
 
     final now = DateTime.now();
-    if (_lastFrameAt != null && now.difference(_lastFrameAt!) < _minFrameInterval) {
+    if (_lastFrameAt != null &&
+        now.difference(_lastFrameAt!) < _minFrameInterval) {
       return;
     }
 
@@ -144,6 +158,7 @@ class DetectionController extends ChangeNotifier {
       _predictions = result.predictions;
       _lastInferenceMs = result.inferenceTimeMs;
       _errorMessage = null;
+      await _maybeSaveHistory(image);
 
       final nowForUi = DateTime.now();
       if (_lastUiUpdateAt == null ||
@@ -157,6 +172,38 @@ class DetectionController extends ChangeNotifier {
     } finally {
       _isProcessingFrame = false;
     }
+  }
+
+  Future<void> _maybeSaveHistory(CameraImage image) async {
+    if (_predictions.isEmpty) {
+      return;
+    }
+
+    final top = _predictions.first;
+    if (top.score < 0.35) {
+      return;
+    }
+
+    final signature = '${top.classIndex}:${top.label}';
+    final now = DateTime.now();
+    if (_lastHistorySignature == signature &&
+        _lastHistorySavedAt != null &&
+        now.difference(_lastHistorySavedAt!) < _minHistorySaveInterval) {
+      return;
+    }
+
+    _lastHistorySignature = signature;
+    _lastHistorySavedAt = now;
+
+    final snapshotBytes = await _yoloService.captureSnapshot(image);
+    await _historyService.addEntry(
+      label: top.label,
+      classIndex: top.classIndex,
+      confidence: top.score,
+      capturedAt: now,
+      imageBytes: snapshotBytes,
+    );
+    notifyListeners();
   }
 
   @override

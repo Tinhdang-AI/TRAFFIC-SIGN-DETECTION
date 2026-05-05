@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:traffic_sign/features/detection/models/detection_history_item.dart';
 import 'package:traffic_sign/features/detection/controllers/detection_controller.dart';
+import 'package:traffic_sign/features/detection/services/detection_history_service.dart';
 import 'package:traffic_sign/features/detection/services/yolov8_service.dart';
 import 'package:traffic_sign/features/detection/widgets/detection_overlay.dart';
 import '../apps/theme/app_theme.dart';
@@ -19,6 +23,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late Animation<double> _pulseAnimation;
   late Animation<double> _scanAnimation;
   late DetectionController _detectionController;
+  late DetectionHistoryService _historyService;
 
   @override
   void initState() {
@@ -40,11 +45,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       CurvedAnimation(parent: _scanController, curve: Curves.linear),
     );
 
+    _historyService = DetectionHistoryService(maxItems: 8);
+
     _detectionController = DetectionController(
       yoloService: YoloV8Service(
         modelAssetPath: 'assets/models/best59_float16.tflite',
         labelsAssetPath: 'assets/models/labels_59.txt',
       ),
+      historyService: _historyService,
     );
     _initializeDetection();
   }
@@ -56,6 +64,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void dispose() {
     _detectionController.dispose();
+    _historyService.dispose();
     _pulseController.dispose();
     _scanController.dispose();
     super.dispose();
@@ -652,29 +661,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildRecentHistory() {
-    final history = [
-      {
-        'icon': Icons.do_not_disturb_alt_rounded,
-        'color': AppColors.danger,
-        'title': 'Cấm đi ngược chiều',
-        'time': '10:45',
-        'location': 'Đường Nguyễn Huệ',
-      },
-      {
-        'icon': Icons.local_parking_rounded,
-        'color': AppColors.info,
-        'title': 'Bãi đỗ xe',
-        'time': '10:32',
-        'location': 'Phố điều',
-      },
-      {
-        'icon': Icons.warning_amber_rounded,
-        'color': AppColors.warning,
-        'title': 'Giảm tốc',
-        'time': '10:15',
-        'location': 'Cầu Sài Gòn',
-      },
-    ];
+    final history = _detectionController.historyItems;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
@@ -716,53 +703,163 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: AppColors.border),
             ),
-            child: Column(
-              children: history.asMap().entries.map((e) {
-                final i = e.key;
-                final item = e.value;
-                return Column(
-                  children: [
-                    _buildHistoryItem(
-                      icon: item['icon'] as IconData,
-                      color: item['color'] as Color,
-                      title: item['title'] as String,
-                      time: item['time'] as String,
-                      location: item['location'] as String,
+            child: history.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: AppColors.primarySurface,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.history_rounded,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Chưa có lịch sử phát hiện. Khi có biển báo đầu tiên, app sẽ lưu ảnh chụp và thời gian ở đây.',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: AppColors.textTertiary,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    if (i < history.length - 1)
-                      const Divider(height: 1, indent: 56, endIndent: 16),
-                  ],
-                );
-              }).toList(),
-            ),
+                  )
+                : Column(
+                    children: history.asMap().entries.map((e) {
+                      final i = e.key;
+                      final item = e.value;
+                      return Column(
+                        children: [
+                          _buildHistoryItem(item: item),
+                          if (i < history.length - 1)
+                            const Divider(height: 1, indent: 56, endIndent: 16),
+                        ],
+                      );
+                    }).toList(),
+                  ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHistoryItem({
-    required IconData icon,
-    required Color color,
-    required String title,
-    required String time,
-    required String location,
-  }) {
+  Widget _buildHistoryItem({required DetectionHistoryItem item}) {
+    final timeText = _formatHistoryTime(item.capturedAt);
+    final title = _formatLabel(item.label);
+    final previewExists = true;
+
     return InkWell(
-      onTap: () {},
+      onTap: () {
+        showModalBottomSheet<void>(
+          context: context,
+          backgroundColor: AppColors.surface,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          builder: (context) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.border,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.file(
+                      File(item.imagePath),
+                      height: 180,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          height: 180,
+                          color: AppColors.surfaceVariant,
+                          child: const Center(
+                            child: Icon(Icons.image_not_supported_rounded),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    title,
+                    style: GoogleFonts.inter(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Độ tin cậy ${(item.confidence * 100).toStringAsFixed(1)}% · $timeText',
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                ],
+              ),
+            );
+          },
+        );
+      },
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 48,
+                height: 48,
+                child: previewExists
+                    ? Image.file(
+                      File(item.imagePath),
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            color: AppColors.primarySurface,
+                            child: Icon(
+                              Icons.traffic_rounded,
+                              color: AppColors.primary,
+                              size: 22,
+                            ),
+                          );
+                        },
+                      )
+                    : Container(
+                        color: AppColors.primarySurface,
+                        child: Icon(
+                          Icons.traffic_rounded,
+                          color: AppColors.primary,
+                          size: 22,
+                        ),
+                      ),
               ),
-              child: Icon(icon, color: color, size: 20),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -781,7 +878,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   Row(
                     children: [
                       Text(
-                        time,
+                        timeText,
                         style: GoogleFonts.inter(
                           fontSize: 12,
                           color: AppColors.textTertiary,
@@ -795,7 +892,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         ),
                       ),
                       Text(
-                        location,
+                        'Tin cậy ${(item.confidence * 100).toStringAsFixed(1)}%',
                         style: GoogleFonts.inter(
                           fontSize: 12,
                           color: AppColors.textTertiary,
@@ -815,6 +912,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         ),
       ),
     );
+  }
+
+  String _formatHistoryTime(DateTime time) {
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 }
 

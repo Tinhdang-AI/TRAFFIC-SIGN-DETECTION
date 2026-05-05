@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/services.dart';
@@ -87,6 +88,11 @@ class YoloV8Service {
       predictions: suppressed,
       inferenceTimeMs: DateTime.now().difference(startedAt).inMilliseconds,
     );
+  }
+
+  Future<Uint8List> captureSnapshot(CameraImage frame, {int quality = 85}) async {
+    final rgbImage = _cameraImageToRgb(frame);
+    return Uint8List.fromList(img.encodeJpg(rgbImage, quality: quality));
   }
 
   List<dynamic> _buildInputTensor(img.Image image) {
